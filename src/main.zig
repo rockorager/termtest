@@ -591,15 +591,44 @@ fn renderEmojiRow(writer: *std.Io.Writer, fire: Fire, row: usize, kind: EmojiKin
     try writer.print("\x1b[{d};1H", .{row + 2});
     const y = row * 2;
     var x: usize = 0;
-    while (x < fire.width) : (x += 2) {
-        const next_x = @min(x + 1, fire.width - 1);
+    while (x + 1 < fire.width) : (x += 2) {
         const total = @as(u16, fire.get(x, y)) +
-            fire.get(next_x, y) +
+            fire.get(x + 1, y) +
             fire.get(x, y + 1) +
-            fire.get(next_x, y + 1);
+            fire.get(x + 1, y + 1);
         const intensity: u8 = @intCast(total / 4);
         try writer.writeAll(emojiForIntensity(intensity, kind, x, row, fire.tick));
     }
+    if (x < fire.width) try writer.writeByte(' ');
+}
+
+test "emoji rows do not emit a wide emoji for an odd trailing column" {
+    const width = 5;
+    const height = 2;
+    const pixels = try std.testing.allocator.alloc(u8, width * height);
+    defer std.testing.allocator.free(pixels);
+    @memset(pixels, max_intensity);
+
+    const fire: Fire = .{
+        .width = width,
+        .height = height,
+        .pixels = pixels,
+        .tick = 0,
+    };
+
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+
+    try renderEmojiRow(&out.writer, fire, 0, .square);
+
+    var expected: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer expected.deinit();
+    try expected.writer.writeAll("\x1b[2;1H");
+    try expected.writer.writeAll(emojiForIntensity(max_intensity, .square, 0, 0, 0));
+    try expected.writer.writeAll(emojiForIntensity(max_intensity, .square, 2, 0, 0));
+    try expected.writer.writeByte(' ');
+
+    try std.testing.expectEqualStrings(expected.written(), out.written());
 }
 
 fn asciiForIntensity(intensity: u8, x: usize, y: usize, tick: u64) u8 {
